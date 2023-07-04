@@ -8,4 +8,5 @@ RUN curl https://repo1.maven.org/maven2/net/java/dev/jets3t/jets3t/0.9.4/jets3t-
 COPY ./dags/spark_etl_script_docker.py /opt/bitnami/spark
 
 COPY ./requirements_copy.txt /
+
 RUN pip install -r /requirements_copy.txt
