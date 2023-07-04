@@ -35,13 +35,6 @@ mkdir ./dags ./logs ./plugins
 echo -e "AIRFLOW_UID=$(id -u)\nAIRFLOW_GID=0" > .env
 ```
 
-## Your environment variable would look like this.
-```bash
-AIRFLOW_UID=33333
-AIRFLOW_GID=0
-AWS_ACCESS_KEY=XXXXXXXXXXXXXXXXXXXX
-AWS_SECRET_KEY=XXXXXXXXXXXXXXXXXXXX
-```
 
 ## Start and run the Spark and Airflow containers.
 ```bash

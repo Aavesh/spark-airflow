@@ -3,39 +3,54 @@ import json
 from pyspark.sql import SparkSession
 from pyspark import SQLContext
 from pyspark.sql import functions as F
-from decouple import config
+from pyspark.sql.functions import col,avg
+from pyspark.sql.window import Window
+# Define a UDF to calculate the median of an array
 
-aws_access_key = config('AWS_ACCESS_KEY')
-aws_secret_key = config('AWS_SECRET_KEY')
+from pyspark.sql.functions import col, udf
+from pyspark.sql.types import StringType
 
 spark = SparkSession \
     .builder \
-    .appName("DataExtraction") \
+    .appName("DataTransformation") \
     .getOrCreate() 
 
-# hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
-# hadoop_conf.set("fs.s3a.access.key", aws_access_key)
-# hadoop_conf.set("fs.s3a.secret.key", aws_secret_key)
-# hadoop_conf.set('spark.hadoop.fs.s3a.aws.credentials.provider', 'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider')
-# hadoop_conf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
 
-response = requests.get("https://api.mfapi.in/mf/118550")
-data = response.text
-sparkContext = spark.sparkContext
-RDD = sparkContext.parallelize([data])
-raw_json_dataframe = spark.read.json(RDD)
+@udf
+def calculate_median(array):
+    sorted_array = sorted(array)
+    n = len(sorted_array)
+    if n % 2 == 0:
+        return (sorted_array[n // 2 - 1] + sorted_array[n // 2]) / 2
+    else:
+        return sorted_array[n // 2]
 
-raw_json_dataframe.printSchema()
-raw_json_dataframe.createOrReplaceTempView("Mutual_benefit")
+# Step 1: Read the CSV files
+data_fields = spark.read.options(header=True).csv("stocks/").withColumn("Symbol", F.input_file_name())
+#data_fields_etfs=data_fields_etfs = spark.read.options(header=True).csv("etfs/")
+symbol_data = spark.read.csv("symbols_valid_meta.csv", header=True)
 
-dataframe = raw_json_dataframe.withColumn("data", F.explode(F.col("data"))) \
-        .withColumn('meta', F.expr("meta")) \
-        .select("data.*", "meta.*")
-        
-dataframe.show(100, False)
-dataframe.toPandas().to_csv("dataframe.csv")
+print ("Merging to tables done")
+# Step 2: Combine the data
+combined_data= symbol_data.join(data_fields, on="Symbol")
 
-## NOTE This line requires Java 8 instead of Java 11 work it to work on Airflow
-## We are saving locally for now.
-# dataframe.write.parquet('s3a://sparkjobresult/output',mode='overwrite')
-# dataframe.write.format('csv').option('header','true').save('s3a://sparkjobresult/output',mode='overwrite')
+# Step 3: Convert the dataset to Parquet
+combined_data.write.parquet("combined_data.parquet")
+print ("Merged temporary pq files with required data structure saved")
+
+# Step 4: Calculate the moving average of the trading volume
+window_spec = Window.partitionBy("Symbol").orderBy("Date").rowsBetween(-30, 0)
+combined_data = combined_data.withColumn("vol_moving_avg", avg(col("Volume")).over(window_spec))
+
+# Step 5: Calculate the rolling median of Adj Close
+#combined_data = combined_data.withColumn("adj_close_rolling_med", median(col("Adj Close")).over(window_spec))
+# Calculate the rolling median of Adj Close using a rolling window of 30 days
+window_spec = Window.partitionBy('Symbol').orderBy('Date').rowsBetween(-30, 0)
+    
+# Collect the values within the rolling window into an array
+combined_data = combined_data.withColumn('adj_close_values', F.collect_list(col('Adj Close')).over(window_spec))
+# Apply the UDF to calculate the rolling median
+combined_data = combined_data.withColumn('adj_close_rolling_med', calculate_median(col('adj_close_values')))    
+# Step 6: Save the modified dataset to Parquet
+combined_data.write.parquet("processed_data.parquet")
+print ("Tranformed data saved")
