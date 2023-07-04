@@ -16,7 +16,7 @@ Here in this repository, we have designed a simple ETL process that extract data
 
 ## Clone the Github repository.
 ```bash
-git clone https://github.com/yTek01/docker-spark-airflow.git
+git@github.com:Aavesh/spark-airflow.git
 ```
 
 ## Build the Spark image.
